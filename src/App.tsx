@@ -11,7 +11,7 @@ import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 import { 
   auth, db, signInWithGoogle, logout,
-  addCategory, addItem, updateItemStock, addHistoryRecord
+  addCategory, addItem, updateItemStock, addHistoryRecord, addAuditRecord
 } from './firebase';
 import { 
   onAuthStateChanged 
@@ -19,7 +19,7 @@ import {
 import { 
   collection, onSnapshot, doc, getDoc, setDoc 
 } from 'firebase/firestore';
-import { User, Category as CategoryType, Item, HistoryRecord } from './types';
+import { User, Category as CategoryType, Item, HistoryRecord, AuditRecord } from './types';
 import { seedDatabase } from './seed';
 
 // --- Error Boundary ---
@@ -138,12 +138,22 @@ function LedgerApp() {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
   const [authError, setAuthError] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<'inventory' | 'orders' | 'categories' | 'settings'>('inventory');
+  const [activeTab, setActiveTab] = useState<'inventory' | 'orders' | 'categories' | 'settings' | 'audits'>('inventory');
   const [categories, setCategories] = useState<CategoryType[]>([]);
   const [items, setItems] = useState<Item[]>([]);
   const [history, setHistory] = useState<HistoryRecord[]>([]);
+  const [audits, setAudits] = useState<AuditRecord[]>([]);
+  const [historySearchQuery, setHistorySearchQuery] = useState('');
+  const [historyUserFilter, setHistoryUserFilter] = useState('');
+  const [historyStartDate, setHistoryStartDate] = useState('');
+  const [historyEndDate, setHistoryEndDate] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
+  const [inventoryCategoryFilter, setInventoryCategoryFilter] = useState('');
+  const [inventoryStockFilter, setInventoryStockFilter] = useState<'all' | 'low' | 'out'>('all');
   const [reorderItem, setReorderItem] = useState<Item | null>(null);
+  const [auditItem, setAuditItem] = useState<Item | null>(null);
+  const [physicalCount, setPhysicalCount] = useState<number>(0);
+  const [auditNotes, setAuditNotes] = useState('');
   const [showQuickAdd, setShowQuickAdd] = useState(false);
   const [showAddCategory, setShowAddCategory] = useState(false);
   const [showResetConfirm, setShowResetConfirm] = useState(false);
@@ -186,6 +196,33 @@ function LedgerApp() {
       setActiveTab('orders');
     } catch (error) {
       console.error('Reorder failed:', error);
+    }
+  };
+
+  const handleConfirmAudit = async () => {
+    if (!auditItem) return;
+    const variance = physicalCount - auditItem.stock;
+    
+    try {
+      await addAuditRecord({
+        itemId: auditItem.id,
+        itemName: auditItem.name,
+        systemCount: auditItem.stock,
+        physicalCount: physicalCount,
+        variance: variance,
+        notes: auditNotes
+      });
+      
+      // Reconcile stock
+      await updateItemStock(auditItem.id, physicalCount);
+      
+      setAuditItem(null);
+      setPhysicalCount(0);
+      setAuditNotes('');
+      setShowSuccessAlert(`Audit completed for ${auditItem.name}. Stock reconciled.`);
+      setTimeout(() => setShowSuccessAlert(null), 3000);
+    } catch (error) {
+      console.error('Audit failed:', error);
     }
   };
 
@@ -244,19 +281,44 @@ function LedgerApp() {
       ));
     });
 
+    const unsubAudits = onSnapshot(collection(db, 'audits'), (snap) => {
+      setAudits(snap.docs.map(doc => ({ ...doc.data(), id: doc.id } as AuditRecord)).sort((a, b) => 
+        new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
+      ));
+    });
+
     return () => {
       unsubCategories();
       unsubItems();
       unsubHistory();
+      unsubAudits();
     };
   }, [user]);
 
   const filteredItems = useMemo(() => {
-    return items.filter(item => 
-      item.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      item.sku.toLowerCase().includes(searchQuery.toLowerCase())
-    );
-  }, [items, searchQuery]);
+    return items.filter(item => {
+      const matchesSearch = item.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+                            item.sku.toLowerCase().includes(searchQuery.toLowerCase());
+      const matchesCategory = !inventoryCategoryFilter || item.categoryId === inventoryCategoryFilter;
+      const matchesStock = inventoryStockFilter === 'all' ? true :
+                           inventoryStockFilter === 'low' ? item.stock < item.threshold && item.stock > 0 :
+                           inventoryStockFilter === 'out' ? item.stock === 0 : true;
+      return matchesSearch && matchesCategory && matchesStock;
+    });
+  }, [items, searchQuery, inventoryCategoryFilter, inventoryStockFilter]);
+
+  const filteredHistory = useMemo(() => {
+    return history.filter(record => {
+      const matchesSearch = record.itemName.toLowerCase().includes(historySearchQuery.toLowerCase());
+      const matchesUser = record.userName.toLowerCase().includes(historyUserFilter.toLowerCase());
+      
+      const recordDate = new Date(record.timestamp);
+      const matchesStartDate = !historyStartDate || recordDate >= new Date(historyStartDate);
+      const matchesEndDate = !historyEndDate || recordDate <= new Date(historyEndDate + 'T23:59:59');
+      
+      return matchesSearch && matchesUser && matchesStartDate && matchesEndDate;
+    });
+  }, [history, historySearchQuery, historyUserFilter, historyStartDate, historyEndDate]);
 
   if (loading) return <div className="h-screen flex items-center justify-center font-headline font-bold text-primary">Loading Ledger...</div>;
 
@@ -487,6 +549,15 @@ function LedgerApp() {
                 Categories
               </button>
               <button 
+                onClick={() => setActiveTab('audits')}
+                className={cn(
+                  "font-headline transition-colors",
+                  activeTab === 'audits' ? "text-primary-container font-bold" : "text-on-surface-variant hover:text-primary-container"
+                )}
+              >
+                Audits
+              </button>
+              <button 
                 onClick={() => setActiveTab('settings')}
                 className={cn(
                   "font-headline transition-colors",
@@ -559,26 +630,94 @@ function LedgerApp() {
               </section>
 
               {/* Search and Filters */}
-              <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-8">
-                <div className="relative flex-1 max-w-xl">
-                  <span className="material-symbols-outlined absolute left-4 top-1/2 -translate-y-1/2 text-on-surface-variant">search</span>
-                  <input 
-                    className="w-full bg-surface-container-highest border-none rounded-xl py-4 pl-12 pr-4 focus:ring-2 focus:ring-primary/20 text-on-surface placeholder:text-on-surface-variant/60 font-body" 
-                    placeholder="Search inventory (e.g. Guinness, Afri Bull...)" 
-                    type="text"
-                    value={searchQuery}
-                    onChange={e => setSearchQuery(e.target.value)}
-                  />
+              <div className="flex flex-col gap-6 mb-8">
+                <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                  <div className="relative flex-1 max-w-xl">
+                    <span className="material-symbols-outlined absolute left-4 top-1/2 -translate-y-1/2 text-on-surface-variant">search</span>
+                    <input 
+                      className="w-full bg-surface-container-highest border-none rounded-xl py-4 pl-12 pr-4 focus:ring-2 focus:ring-primary/20 text-on-surface placeholder:text-on-surface-variant/60 font-body" 
+                      placeholder="Search inventory (e.g. Guinness, Afri Bull...)" 
+                      type="text"
+                      value={searchQuery}
+                      onChange={e => setSearchQuery(e.target.value)}
+                    />
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <button 
+                      onClick={() => {
+                        setSearchQuery('');
+                        setInventoryCategoryFilter('');
+                        setInventoryStockFilter('all');
+                      }}
+                      className={cn(
+                        "text-xs font-bold uppercase tracking-widest px-4 py-2 rounded-lg transition-all",
+                        (searchQuery || inventoryCategoryFilter || inventoryStockFilter !== 'all') 
+                          ? "text-primary hover:bg-primary/10 opacity-100" 
+                          : "opacity-0 pointer-events-none"
+                      )}
+                    >
+                      Reset Filters
+                    </button>
+                  </div>
                 </div>
-                <div className="flex items-center gap-3">
-                  <button className="bg-surface-container-high text-on-surface px-5 py-3 rounded-xl font-medium flex items-center gap-2 hover:bg-surface-variant transition-colors active:scale-95">
-                    <span className="material-symbols-outlined text-lg">filter_list</span>
-                    <span>Filters</span>
-                  </button>
-                  <button className="bg-surface-container-high text-on-surface px-5 py-3 rounded-xl font-medium flex items-center gap-2 hover:bg-surface-variant transition-colors active:scale-95">
-                    <span className="material-symbols-outlined text-lg">sort</span>
-                    <span>Sort</span>
-                  </button>
+
+                <div className="flex flex-wrap items-center gap-4">
+                  <div className="flex items-center gap-2 bg-surface-container-low p-1 rounded-2xl border border-outline-variant/10">
+                    <button 
+                      onClick={() => setInventoryStockFilter('all')}
+                      className={cn(
+                        "px-4 py-2 rounded-xl text-xs font-bold transition-all",
+                        inventoryStockFilter === 'all' ? "bg-primary text-white shadow-md" : "text-on-surface-variant hover:bg-surface-container-high"
+                      )}
+                    >
+                      All Stock
+                    </button>
+                    <button 
+                      onClick={() => setInventoryStockFilter('low')}
+                      className={cn(
+                        "px-4 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-2",
+                        inventoryStockFilter === 'low' ? "bg-error text-white shadow-md" : "text-on-surface-variant hover:bg-surface-container-high"
+                      )}
+                    >
+                      <span className="w-1.5 h-1.5 rounded-full bg-current animate-pulse"></span>
+                      Low Stock
+                    </button>
+                    <button 
+                      onClick={() => setInventoryStockFilter('out')}
+                      className={cn(
+                        "px-4 py-2 rounded-xl text-xs font-bold transition-all",
+                        inventoryStockFilter === 'out' ? "bg-on-surface text-white shadow-md" : "text-on-surface-variant hover:bg-surface-container-high"
+                      )}
+                    >
+                      Out of Stock
+                    </button>
+                  </div>
+
+                  <div className="h-8 w-px bg-outline-variant/20 hidden md:block"></div>
+
+                  <div className="flex items-center gap-2 overflow-x-auto pb-2 md:pb-0 scrollbar-hide">
+                    <button 
+                      onClick={() => setInventoryCategoryFilter('')}
+                      className={cn(
+                        "px-4 py-2 rounded-xl text-xs font-bold whitespace-nowrap transition-all border",
+                        inventoryCategoryFilter === '' ? "bg-primary-container text-white border-primary-container" : "bg-surface-container-low text-on-surface-variant border-outline-variant/20 hover:border-primary/40"
+                      )}
+                    >
+                      All Categories
+                    </button>
+                    {categories.map(cat => (
+                      <button 
+                        key={cat.id}
+                        onClick={() => setInventoryCategoryFilter(cat.id)}
+                        className={cn(
+                          "px-4 py-2 rounded-xl text-xs font-bold whitespace-nowrap transition-all border",
+                          inventoryCategoryFilter === cat.id ? "bg-primary-container text-white border-primary-container" : "bg-surface-container-low text-on-surface-variant border-outline-variant/20 hover:border-primary/40"
+                        )}
+                      >
+                        {cat.name}
+                      </button>
+                    ))}
+                  </div>
                 </div>
               </div>
 
@@ -628,6 +767,17 @@ function LedgerApp() {
                       <button 
                         onClick={(e) => {
                           e.stopPropagation();
+                          setAuditItem(item);
+                          setPhysicalCount(item.stock);
+                        }}
+                        className="bg-surface-container-highest text-on-surface px-4 py-1.5 rounded-full text-xs font-bold hover:bg-surface-variant transition-all active:scale-95 flex items-center gap-2"
+                      >
+                        <span className="material-symbols-outlined text-sm">fact_check</span>
+                        Audit
+                      </button>
+                      <button 
+                        onClick={(e) => {
+                          e.stopPropagation();
                           setReorderItem(item);
                         }}
                         className="bg-primary-container text-white px-4 py-1.5 rounded-full text-xs font-bold hover:brightness-110 transition-all active:scale-95"
@@ -673,13 +823,89 @@ function LedgerApp() {
                     <div className="bg-surface-container-low px-6 py-3 rounded-2xl border border-outline-variant/10">
                       <p className="text-[10px] font-bold text-on-surface-variant uppercase tracking-widest mb-1">Total Spent</p>
                       <p className="text-xl font-headline font-extrabold text-primary">
-                        GH₵{history.reduce((acc, curr) => acc + curr.totalCost, 0).toLocaleString('en-GH', { minimumFractionDigits: 2 })}
+                        GH₵{filteredHistory.reduce((acc, curr) => acc + curr.totalCost, 0).toLocaleString('en-GH', { minimumFractionDigits: 2 })}
                       </p>
                     </div>
                     <div className="bg-surface-container-low px-6 py-3 rounded-2xl border border-outline-variant/10">
                       <p className="text-[10px] font-bold text-on-surface-variant uppercase tracking-widest mb-1">Total Orders</p>
-                      <p className="text-xl font-headline font-extrabold text-primary">{history.length}</p>
+                      <p className="text-xl font-headline font-extrabold text-primary">{filteredHistory.length}</p>
                     </div>
+                  </div>
+                )}
+              </div>
+
+              {/* History Filters */}
+              <div className="bg-surface-container-low p-6 rounded-[2rem] border border-outline-variant/10 space-y-4">
+                <div className="flex items-center gap-2 mb-2">
+                  <span className="material-symbols-outlined text-primary text-sm">filter_alt</span>
+                  <h3 className="font-headline font-bold text-sm uppercase tracking-widest text-on-surface-variant">Filter Records</h3>
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                  <div className="space-y-1.5">
+                    <label className="text-[10px] font-bold text-on-surface-variant uppercase tracking-widest px-1">Item Name</label>
+                    <div className="relative">
+                      <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-on-surface-variant/60" />
+                      <input 
+                        type="text" 
+                        placeholder="Search items..."
+                        className="w-full bg-surface-container-highest border-none rounded-xl py-2.5 pl-9 pr-3 text-sm focus:ring-1 focus:ring-primary/20"
+                        value={historySearchQuery}
+                        onChange={e => setHistorySearchQuery(e.target.value)}
+                      />
+                    </div>
+                  </div>
+                  <div className="space-y-1.5">
+                    <label className="text-[10px] font-bold text-on-surface-variant uppercase tracking-widest px-1">Authorized By</label>
+                    <div className="relative">
+                      <UserIcon size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-on-surface-variant/60" />
+                      <input 
+                        type="text" 
+                        placeholder="Search user..."
+                        className="w-full bg-surface-container-highest border-none rounded-xl py-2.5 pl-9 pr-3 text-sm focus:ring-1 focus:ring-primary/20"
+                        value={historyUserFilter}
+                        onChange={e => setHistoryUserFilter(e.target.value)}
+                      />
+                    </div>
+                  </div>
+                  <div className="space-y-1.5">
+                    <label className="text-[10px] font-bold text-on-surface-variant uppercase tracking-widest px-1">Start Date</label>
+                    <div className="relative">
+                      <Calendar size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-on-surface-variant/60" />
+                      <input 
+                        type="date" 
+                        className="w-full bg-surface-container-highest border-none rounded-xl py-2.5 pl-9 pr-3 text-sm focus:ring-1 focus:ring-primary/20"
+                        value={historyStartDate}
+                        onChange={e => setHistoryStartDate(e.target.value)}
+                      />
+                    </div>
+                  </div>
+                  <div className="space-y-1.5">
+                    <label className="text-[10px] font-bold text-on-surface-variant uppercase tracking-widest px-1">End Date</label>
+                    <div className="relative">
+                      <Calendar size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-on-surface-variant/60" />
+                      <input 
+                        type="date" 
+                        className="w-full bg-surface-container-highest border-none rounded-xl py-2.5 pl-9 pr-3 text-sm focus:ring-1 focus:ring-primary/20"
+                        value={historyEndDate}
+                        onChange={e => setHistoryEndDate(e.target.value)}
+                      />
+                    </div>
+                  </div>
+                </div>
+                {(historySearchQuery || historyUserFilter || historyStartDate || historyEndDate) && (
+                  <div className="flex justify-end pt-2">
+                    <button 
+                      onClick={() => {
+                        setHistorySearchQuery('');
+                        setHistoryUserFilter('');
+                        setHistoryStartDate('');
+                        setHistoryEndDate('');
+                      }}
+                      className="text-[10px] font-bold text-primary uppercase tracking-widest hover:underline flex items-center gap-1"
+                    >
+                      <RefreshCw size={10} />
+                      Clear All Filters
+                    </button>
                   </div>
                 )}
               </div>
@@ -710,7 +936,7 @@ function LedgerApp() {
                       </div>
                       {(() => {
                         const counts: Record<string, number> = {};
-                        history.forEach(h => counts[h.itemName] = (counts[h.itemName] || 0) + h.quantity);
+                        filteredHistory.forEach(h => counts[h.itemName] = (counts[h.itemName] || 0) + h.quantity);
                         const top = Object.entries(counts).sort((a, b) => b[1] - a[1])[0];
                         return (
                           <div>
@@ -730,7 +956,7 @@ function LedgerApp() {
                       </div>
                       <div>
                         <p className="text-2xl font-headline font-extrabold">
-                          GH₵{(history.reduce((acc, curr) => acc + curr.totalCost, 0) / history.length).toLocaleString('en-GH', { maximumFractionDigits: 0 })}
+                          GH₵{filteredHistory.length > 0 ? (filteredHistory.reduce((acc, curr) => acc + curr.totalCost, 0) / filteredHistory.length).toLocaleString('en-GH', { maximumFractionDigits: 0 }) : '0'}
                         </p>
                         <p className="text-on-tertiary-container/60 text-xs font-medium uppercase tracking-widest mt-1">Per replenishment</p>
                       </div>
@@ -745,10 +971,10 @@ function LedgerApp() {
                       </div>
                       <div>
                         <p className="text-xl font-headline font-extrabold text-on-surface">
-                          {new Date(history[0].timestamp).toLocaleDateString('en-GH', { month: 'short', day: 'numeric' })}
+                          {filteredHistory.length > 0 ? new Date(filteredHistory[0].timestamp).toLocaleDateString('en-GH', { month: 'short', day: 'numeric' }) : 'N/A'}
                         </p>
                         <p className="text-on-surface-variant text-xs font-medium uppercase tracking-widest mt-1">
-                          {history[0].itemName} ({history[0].quantity} units)
+                          {filteredHistory.length > 0 ? `${filteredHistory[0].itemName} (${filteredHistory[0].quantity} units)` : 'No activity found'}
                         </p>
                       </div>
                     </Card>
@@ -768,46 +994,54 @@ function LedgerApp() {
                           </tr>
                         </thead>
                         <tbody className="divide-y divide-outline-variant/10">
-                          {history.map((record) => (
-                            <tr key={record.id} className="hover:bg-surface-container-high/30 transition-colors group">
-                              <td className="px-8 py-5">
-                                <div className="flex flex-col">
-                                  <span className="text-sm font-bold text-on-surface">
-                                    {new Date(record.timestamp).toLocaleDateString('en-GH', { day: '2-digit', month: 'short', year: 'numeric' })}
-                                  </span>
-                                  <span className="text-[10px] text-on-surface-variant font-medium">
-                                    {new Date(record.timestamp).toLocaleTimeString('en-GH', { hour: '2-digit', minute: '2-digit' })}
-                                  </span>
-                                </div>
-                              </td>
-                              <td className="px-8 py-5">
-                                <div className="flex items-center gap-3">
-                                  <div className="w-8 h-8 bg-surface-container-highest rounded-lg flex items-center justify-center">
-                                    <Package size={16} className="text-primary-container/40" />
-                                  </div>
-                                  <span className="text-sm font-bold text-primary-container">{record.itemName}</span>
-                                </div>
-                              </td>
-                              <td className="px-8 py-5 text-center">
-                                <span className="bg-secondary-container text-on-secondary-container px-3 py-1 rounded-full text-xs font-bold">
-                                  {record.quantity}
-                                </span>
-                              </td>
-                              <td className="px-8 py-5 text-right">
-                                <span className="text-sm font-headline font-extrabold text-on-surface">
-                                  GH₵{record.totalCost.toLocaleString('en-GH', { minimumFractionDigits: 2 })}
-                                </span>
-                              </td>
-                              <td className="px-8 py-5 text-right">
-                                <div className="flex items-center justify-end gap-2">
-                                  <div className="w-6 h-6 rounded-full bg-indigo-gradient flex items-center justify-center text-[8px] text-white font-bold">
-                                    {record.userName.charAt(0)}
-                                  </div>
-                                  <span className="text-xs font-medium text-on-surface-variant">{record.userName}</span>
-                                </div>
+                          {filteredHistory.length === 0 ? (
+                            <tr>
+                              <td colSpan={5} className="px-8 py-10 text-center text-on-surface-variant italic text-sm">
+                                No records match your current filters.
                               </td>
                             </tr>
-                          ))}
+                          ) : (
+                            filteredHistory.map((record) => (
+                              <tr key={record.id} className="hover:bg-surface-container-high/30 transition-colors group">
+                                <td className="px-8 py-5">
+                                  <div className="flex flex-col">
+                                    <span className="text-sm font-bold text-on-surface">
+                                      {new Date(record.timestamp).toLocaleDateString('en-GH', { day: '2-digit', month: 'short', year: 'numeric' })}
+                                    </span>
+                                    <span className="text-[10px] text-on-surface-variant font-medium">
+                                      {new Date(record.timestamp).toLocaleTimeString('en-GH', { hour: '2-digit', minute: '2-digit' })}
+                                    </span>
+                                  </div>
+                                </td>
+                                <td className="px-8 py-5">
+                                  <div className="flex items-center gap-3">
+                                    <div className="w-8 h-8 bg-surface-container-highest rounded-lg flex items-center justify-center">
+                                      <Package size={16} className="text-primary-container/40" />
+                                    </div>
+                                    <span className="text-sm font-bold text-primary-container">{record.itemName}</span>
+                                  </div>
+                                </td>
+                                <td className="px-8 py-5 text-center">
+                                  <span className="bg-secondary-container text-on-secondary-container px-3 py-1 rounded-full text-xs font-bold">
+                                    {record.quantity}
+                                  </span>
+                                </td>
+                                <td className="px-8 py-5 text-right">
+                                  <span className="text-sm font-headline font-extrabold text-on-surface">
+                                    GH₵{record.totalCost.toLocaleString('en-GH', { minimumFractionDigits: 2 })}
+                                  </span>
+                                </td>
+                                <td className="px-8 py-5 text-right">
+                                  <div className="flex items-center justify-end gap-2">
+                                    <div className="w-6 h-6 rounded-full bg-indigo-gradient flex items-center justify-center text-[8px] text-white font-bold">
+                                      {record.userName.charAt(0)}
+                                    </div>
+                                    <span className="text-xs font-medium text-on-surface-variant">{record.userName}</span>
+                                  </div>
+                                </td>
+                              </tr>
+                            ))
+                          )}
                         </tbody>
                       </table>
                     </div>
@@ -867,6 +1101,124 @@ function LedgerApp() {
             </motion.div>
           )}
 
+          {activeTab === 'audits' && (
+            <motion.div 
+              key="audits"
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -20 }}
+              className="space-y-10"
+            >
+              <div className="flex flex-col md:flex-row md:items-end justify-between gap-6">
+                <div className="space-y-2">
+                  <h2 className="font-headline font-extrabold text-3xl tracking-tight text-primary-container">Stock Auditing</h2>
+                  <p className="text-on-surface-variant">Perform physical counts and reconcile discrepancies.</p>
+                </div>
+                
+                <div className="flex gap-4">
+                  <div className="bg-surface-container-low px-6 py-3 rounded-2xl border border-outline-variant/10">
+                    <p className="text-[10px] font-bold text-on-surface-variant uppercase tracking-widest mb-1">Total Audits</p>
+                    <p className="text-xl font-headline font-extrabold text-primary">{audits.length}</p>
+                  </div>
+                  <div className="bg-surface-container-low px-6 py-3 rounded-2xl border border-outline-variant/10">
+                    <p className="text-[10px] font-bold text-on-surface-variant uppercase tracking-widest mb-1">Total Variance</p>
+                    <p className={cn(
+                      "text-xl font-headline font-extrabold",
+                      audits.reduce((acc, curr) => acc + curr.variance, 0) < 0 ? "text-error" : "text-primary"
+                    )}>
+                      {audits.reduce((acc, curr) => acc + curr.variance, 0)}
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Audit History Table */}
+              <div className="bg-surface-container-low rounded-[2.5rem] overflow-hidden border border-outline-variant/10">
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left border-collapse">
+                    <thead>
+                      <tr className="bg-surface-container-highest/50">
+                        <th className="px-6 py-4 text-[10px] font-bold text-on-surface-variant uppercase tracking-widest">Date</th>
+                        <th className="px-6 py-4 text-[10px] font-bold text-on-surface-variant uppercase tracking-widest">Item</th>
+                        <th className="px-6 py-4 text-[10px] font-bold text-on-surface-variant uppercase tracking-widest text-center">System</th>
+                        <th className="px-6 py-4 text-[10px] font-bold text-on-surface-variant uppercase tracking-widest text-center">Physical</th>
+                        <th className="px-6 py-4 text-[10px] font-bold text-on-surface-variant uppercase tracking-widest text-center">Variance</th>
+                        <th className="px-6 py-4 text-[10px] font-bold text-on-surface-variant uppercase tracking-widest">Auditor</th>
+                        <th className="px-6 py-4 text-[10px] font-bold text-on-surface-variant uppercase tracking-widest">Notes</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-outline-variant/10">
+                      {audits.length === 0 ? (
+                        <tr>
+                          <td colSpan={7} className="px-6 py-12 text-center text-on-surface-variant italic">
+                            No audit records found.
+                          </td>
+                        </tr>
+                      ) : (
+                        audits.map(audit => (
+                          <tr key={audit.id} className="hover:bg-surface-container-highest/30 transition-colors">
+                            <td className="px-6 py-4 text-xs font-medium">
+                              {new Date(audit.timestamp).toLocaleDateString()}
+                              <br />
+                              <span className="text-[10px] text-on-surface-variant">{new Date(audit.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                            </td>
+                            <td className="px-6 py-4">
+                              <p className="text-sm font-bold text-on-surface">{audit.itemName}</p>
+                            </td>
+                            <td className="px-6 py-4 text-center text-sm font-medium">{audit.systemCount}</td>
+                            <td className="px-6 py-4 text-center text-sm font-bold text-primary">{audit.physicalCount}</td>
+                            <td className="px-6 py-4 text-center">
+                              <span className={cn(
+                                "px-3 py-1 rounded-full text-[10px] font-bold",
+                                audit.variance === 0 ? "bg-surface-container-highest text-on-surface-variant" :
+                                audit.variance > 0 ? "bg-tertiary-container text-on-tertiary-container" :
+                                "bg-error-container text-on-error-container"
+                              )}>
+                                {audit.variance > 0 ? `+${audit.variance}` : audit.variance}
+                              </span>
+                            </td>
+                            <td className="px-6 py-4">
+                              <div className="flex items-center gap-2">
+                                <div className="w-6 h-6 rounded-full bg-primary/10 flex items-center justify-center text-[10px] font-bold text-primary">
+                                  {audit.userName.charAt(0)}
+                                </div>
+                                <span className="text-xs font-medium">{audit.userName}</span>
+                              </div>
+                            </td>
+                            <td className="px-6 py-4 text-xs text-on-surface-variant italic max-w-xs truncate">
+                              {audit.notes || '-'}
+                            </td>
+                          </tr>
+                        ))
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+              {/* Audit Instructions Card */}
+              <div className="bg-primary/5 p-8 rounded-[2.5rem] border border-primary/10 flex flex-col md:flex-row items-center gap-8">
+                <div className="w-20 h-20 bg-primary/10 rounded-full flex items-center justify-center text-primary flex-shrink-0">
+                  <span className="material-symbols-outlined text-4xl">inventory</span>
+                </div>
+                <div className="space-y-2 text-center md:text-left">
+                  <h3 className="font-headline font-bold text-xl text-primary">Ready to Audit?</h3>
+                  <p className="text-on-surface-variant text-sm max-w-xl">
+                    Go to the <strong>Inventory</strong> tab and click the <strong>Audit</strong> button on any item to start a physical count. 
+                    The system will automatically calculate variances and update the stock levels upon reconciliation.
+                  </p>
+                  <Button 
+                    variant="secondary" 
+                    size="sm" 
+                    className="mt-4"
+                    onClick={() => setActiveTab('inventory')}
+                  >
+                    Go to Inventory
+                  </Button>
+                </div>
+              </div>
+            </motion.div>
+          )}
           {activeTab === 'settings' && (
             <motion.div 
               key="settings"
@@ -1161,6 +1513,99 @@ function LedgerApp() {
         <span className="absolute right-full mr-4 bg-primary-container text-white px-4 py-2 rounded-xl text-sm font-bold opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none whitespace-nowrap shadow-xl">Quick Add Stock</span>
       </button>
 
+      {/* Audit Modal */}
+      <AnimatePresence>
+        {auditItem && (
+          <motion.div 
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[100] bg-black/40 backdrop-blur-sm flex items-end md:items-center justify-center p-4"
+            onClick={() => setAuditItem(null)}
+          >
+            <motion.div 
+              initial={{ y: 100 }}
+              animate={{ y: 0 }}
+              exit={{ y: 100 }}
+              className="bg-surface w-full max-w-lg rounded-[2.5rem] p-8 space-y-8"
+              onClick={e => e.stopPropagation()}
+            >
+              <div className="flex justify-between items-center">
+                <div className="space-y-1">
+                  <h2 className="font-headline font-bold text-2xl text-primary-container">Stock Audit</h2>
+                  <p className="text-on-surface-variant text-sm font-medium">{auditItem.name}</p>
+                </div>
+                <button onClick={() => setAuditItem(null)} className="p-2 rounded-full hover:bg-surface-container-high">
+                  <ChevronLeft />
+                </button>
+              </div>
+
+              <div className="space-y-6">
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="bg-surface-container-low p-4 rounded-2xl border border-outline-variant/10">
+                    <p className="text-[10px] font-bold text-on-surface-variant uppercase tracking-widest mb-1">System Stock</p>
+                    <p className="text-2xl font-headline font-extrabold text-on-surface">{auditItem.stock}</p>
+                  </div>
+                  <div className="bg-surface-container-low p-4 rounded-2xl border border-outline-variant/10">
+                    <p className="text-[10px] font-bold text-on-surface-variant uppercase tracking-widest mb-1">Variance</p>
+                    <p className={cn(
+                      "text-2xl font-headline font-extrabold",
+                      (physicalCount - auditItem.stock) === 0 ? "text-on-surface-variant" :
+                      (physicalCount - auditItem.stock) > 0 ? "text-tertiary" : "text-error"
+                    )}>
+                      {(physicalCount - auditItem.stock) > 0 ? `+${physicalCount - auditItem.stock}` : physicalCount - auditItem.stock}
+                    </p>
+                  </div>
+                </div>
+
+                <div className="space-y-2">
+                  <label className="text-xs font-semibold uppercase tracking-wider text-on-surface-variant px-1">Physical Count</label>
+                  <div className="flex items-center gap-4">
+                    <button 
+                      onClick={() => setPhysicalCount(prev => Math.max(0, prev - 1))}
+                      className="w-12 h-12 bg-surface-container-highest rounded-xl flex items-center justify-center text-primary active:scale-90 transition-transform"
+                    >
+                      <Minus size={24} />
+                    </button>
+                    <input 
+                      type="number"
+                      className="flex-1 bg-surface-container-highest border-none rounded-2xl px-4 py-4 text-center text-2xl font-headline font-bold text-on-surface focus:ring-1 focus:ring-primary/20" 
+                      value={physicalCount}
+                      onChange={e => setPhysicalCount(parseInt(e.target.value) || 0)}
+                    />
+                    <button 
+                      onClick={() => setPhysicalCount(prev => prev + 1)}
+                      className="w-12 h-12 bg-surface-container-highest rounded-xl flex items-center justify-center text-primary active:scale-90 transition-transform"
+                    >
+                      <Plus size={24} />
+                    </button>
+                  </div>
+                </div>
+
+                <div className="space-y-2">
+                  <label className="text-xs font-semibold uppercase tracking-wider text-on-surface-variant px-1">Audit Notes (Optional)</label>
+                  <textarea 
+                    className="w-full bg-surface-container-highest border-none rounded-2xl px-4 py-4 text-on-surface focus:ring-1 focus:ring-primary/20 min-h-[100px]" 
+                    placeholder="e.g. Found 2 damaged bottles, stock miscounted in last delivery..."
+                    value={auditNotes}
+                    onChange={e => setAuditNotes(e.target.value)}
+                  />
+                </div>
+
+                <div className="pt-4 space-y-3">
+                  <Button className="w-full py-5" onClick={handleConfirmAudit}>
+                    Reconcile & Log Audit
+                  </Button>
+                  <p className="text-[10px] text-center text-on-surface-variant uppercase tracking-widest font-bold">
+                    This will update system stock to {physicalCount} units
+                  </p>
+                </div>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       {/* Add Category Modal */}
       <AnimatePresence>
         {showAddCategory && (
@@ -1303,6 +1748,12 @@ function LedgerApp() {
           onClick={() => setActiveTab('categories')} 
           icon={<span className="material-symbols-outlined" style={{ fontVariationSettings: activeTab === 'categories' ? "'FILL' 1" : "'FILL' 0" }}>category</span>} 
           label="Categories" 
+        />
+        <NavTab 
+          active={activeTab === 'audits'} 
+          onClick={() => setActiveTab('audits')} 
+          icon={<span className="material-symbols-outlined" style={{ fontVariationSettings: activeTab === 'audits' ? "'FILL' 1" : "'FILL' 0" }}>fact_check</span>} 
+          label="Audits" 
         />
         <NavTab 
           active={activeTab === 'settings'} 

@@ -49,6 +49,20 @@ service cloud.firestore {
     //   - userUid: string (required)
     //   - userName: string (required)
     //
+    // Collection: audits
+    // Document ID: {auditId}
+    // Fields:
+    //   - id: string (required)
+    //   - itemId: string (required)
+    //   - itemName: string (required)
+    //   - systemCount: number (required)
+    //   - physicalCount: number (required)
+    //   - variance: number (required)
+    //   - timestamp: string (required, ISO 8601)
+    //   - userUid: string (required)
+    //   - userName: string (required)
+    //   - notes: string (optional)
+    //
     // ===============================================================
 
     // ===============================================================
@@ -126,6 +140,17 @@ service cloud.firestore {
              data.userUid == request.auth.uid;
     }
 
+    function isValidAudit(data) {
+      return data.keys().hasAll(['itemId', 'itemName', 'systemCount', 'physicalCount', 'variance', 'timestamp', 'userUid']) &&
+             data.itemId is string &&
+             data.itemName is string &&
+             data.systemCount is number &&
+             data.physicalCount is number &&
+             data.variance is number &&
+             isValidDateString(data.timestamp) &&
+             data.userUid == request.auth.uid;
+    }
+
     // ===============================================================
     // Rules
     // ===============================================================
@@ -155,6 +180,13 @@ service cloud.firestore {
       allow read: if isAuthenticated();
       allow create: if isManager() && isValidHistory(request.resource.data);
       allow update: if false; // History should be immutable
+      allow delete: if isAdmin();
+    }
+
+    match /audits/{auditId} {
+      allow read: if isAuthenticated();
+      allow create: if isManager() && isValidAudit(request.resource.data);
+      allow update: if false; // Audits should be immutable
       allow delete: if isAdmin();
     }
 

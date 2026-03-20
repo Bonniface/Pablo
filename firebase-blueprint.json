@@ -59,6 +59,24 @@
         "userName": { "type": "string" }
       },
       "required": ["itemId", "itemName", "quantity", "totalCost", "timestamp", "userUid"]
+    },
+    "AuditRecord": {
+      "title": "Stock Audit Record",
+      "description": "Log of a physical inventory count and reconciliation.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "itemId": { "type": "string" },
+        "itemName": { "type": "string" },
+        "systemCount": { "type": "number" },
+        "physicalCount": { "type": "number" },
+        "variance": { "type": "number" },
+        "timestamp": { "type": "string", "format": "date-time" },
+        "userUid": { "type": "string" },
+        "userName": { "type": "string" },
+        "notes": { "type": "string" }
+      },
+      "required": ["itemId", "itemName", "systemCount", "physicalCount", "variance", "timestamp", "userUid"]
     }
   },
   "firestore": {
@@ -77,6 +95,10 @@
     "/history/{historyId}": {
       "schema": "HistoryRecord",
       "description": "Logs of all stock updates."
+    },
+    "/audits/{auditId}": {
+      "schema": "AuditRecord",
+      "description": "Logs of all stock audits."
     }
   }
 }

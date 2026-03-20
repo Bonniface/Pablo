@@ -36,3 +36,16 @@ export interface HistoryRecord {
   userUid: string;
   userName: string;
 }
+
+export interface AuditRecord {
+  id: string;
+  itemId: string;
+  itemName: string;
+  systemCount: number;
+  physicalCount: number;
+  variance: number;
+  timestamp: string;
+  userUid: string;
+  userName: string;
+  notes?: string;
+}

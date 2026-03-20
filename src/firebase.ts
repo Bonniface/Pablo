@@ -120,7 +120,7 @@ export function handleFirestoreError(error: unknown, operationType: OperationTyp
 
 // --- CRUD Operations ---
 
-import { Category, Item, HistoryRecord } from './types';
+import { Category, Item, HistoryRecord, AuditRecord } from './types';
 
 export const addCategory = async (category: Omit<Category, 'id'>) => {
   const path = 'categories';
@@ -153,6 +153,24 @@ export const addItem = async (item: Omit<Item, 'id' | 'lastUpdated' | 'updatedBy
 
 export const addHistoryRecord = async (record: Omit<HistoryRecord, 'id' | 'timestamp' | 'userUid' | 'userName'>) => {
   const path = 'history';
+  try {
+    const newDocRef = doc(collection(db, path));
+    const data = {
+      ...record,
+      id: newDocRef.id,
+      timestamp: new Date().toISOString(),
+      userUid: auth.currentUser?.uid || 'unknown',
+      userName: auth.currentUser?.displayName || 'Unknown User'
+    };
+    await setDoc(newDocRef, data);
+    return data;
+  } catch (error) {
+    handleFirestoreError(error, OperationType.CREATE, path);
+  }
+};
+
+export const addAuditRecord = async (record: Omit<AuditRecord, 'id' | 'timestamp' | 'userUid' | 'userName'>) => {
+  const path = 'audits';
   try {
     const newDocRef = doc(collection(db, path));
     const data = {
