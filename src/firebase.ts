@@ -21,14 +21,17 @@ export const googleProvider = new GoogleAuthProvider();
 
 export const signInWithGoogle = async () => {
   try {
+    console.log('Attempting Google Sign-In...');
     const result = await signInWithPopup(auth, googleProvider);
     const user = result.user;
+    console.log('Sign-in successful:', user.email);
     
     // Sync user to Firestore
     const userRef = doc(db, 'users', user.uid);
     const userSnap = await getDoc(userRef);
     
     if (!userSnap.exists()) {
+      console.log('Creating new user document...');
       await setDoc(userRef, {
         uid: user.uid,
         email: user.email,
@@ -38,8 +41,14 @@ export const signInWithGoogle = async () => {
       });
     }
     return user;
-  } catch (error) {
+  } catch (error: any) {
     console.error('Error signing in with Google:', error);
+    if (error.code === 'auth/popup-blocked') {
+      throw new Error('Sign-in popup was blocked by your browser. Please allow popups for this site.');
+    }
+    if (error.code === 'auth/unauthorized-domain') {
+      throw new Error('This domain is not authorized for Google Sign-In. Please contact the administrator.');
+    }
     throw error;
   }
 };

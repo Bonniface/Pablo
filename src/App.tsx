@@ -137,6 +137,7 @@ export default function App() {
 function LedgerApp() {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
+  const [authError, setAuthError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<'inventory' | 'orders' | 'categories' | 'settings'>('inventory');
   const [categories, setCategories] = useState<CategoryType[]>([]);
   const [items, setItems] = useState<Item[]>([]);
@@ -275,9 +276,25 @@ function LedgerApp() {
               <h2 className="font-headline font-bold text-2xl">Welcome Back</h2>
               <p className="text-sm text-on-surface-variant">Sign in with your Google account to access your inventory ledger.</p>
             </div>
-            <Button className="w-full py-4" onClick={signInWithGoogle}>
+            <Button 
+              className="w-full py-4" 
+              onClick={async () => {
+                try {
+                  setAuthError(null);
+                  await signInWithGoogle();
+                } catch (err: any) {
+                  setAuthError(err.message || 'Failed to sign in. Please check your connection and try again.');
+                }
+              }}
+            >
               Sign in with Google
             </Button>
+            {authError && (
+              <div className="mt-4 p-3 bg-error-container/10 border border-error-container/20 rounded-xl flex items-center gap-3 text-error text-xs font-medium">
+                <AlertCircle size={16} />
+                <p>{authError}</p>
+              </div>
+            )}
           </div>
         </div>
       </div>
