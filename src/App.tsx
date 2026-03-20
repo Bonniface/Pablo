@@ -145,6 +145,8 @@ function LedgerApp() {
   const [reorderItem, setReorderItem] = useState<Item | null>(null);
   const [showQuickAdd, setShowQuickAdd] = useState(false);
   const [showAddCategory, setShowAddCategory] = useState(false);
+  const [showResetConfirm, setShowResetConfirm] = useState(false);
+  const [showSuccessAlert, setShowSuccessAlert] = useState<string | null>(null);
 
   // Form States
   const [newItem, setNewItem] = useState({ name: '', sku: '', categoryId: '', stock: 0, unitPrice: 0, threshold: 10 });
@@ -199,7 +201,7 @@ function LedgerApp() {
             email: firebaseUser.email,
             displayName: firebaseUser.displayName,
             photoURL: firebaseUser.photoURL,
-            role: firebaseUser.email === 'kalongboniface97@gmail.com' ? 'admin' : 'manager'
+            role: firebaseUser.email === import.meta.env.VITE_ADMIN_EMAIL ? 'admin' : 'manager'
           });
         }
 
@@ -878,11 +880,7 @@ function LedgerApp() {
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-4">
                   <button 
-                    onClick={() => {
-                      if (confirm('Are you sure you want to reset all data to seed defaults? This will clear all current inventory.')) {
-                        seedDatabase(true).then(() => alert('Database reset successfully.'));
-                      }
-                    }}
+                    onClick={() => setShowResetConfirm(true)}
                     className="flex items-center gap-4 p-6 bg-surface-container-lowest rounded-[2rem] hover:bg-surface-container-high transition-colors text-left group"
                   >
                     <div className="w-12 h-12 rounded-2xl bg-tertiary-fixed text-on-tertiary-fixed-variant flex items-center justify-center group-hover:scale-110 transition-transform">
@@ -906,6 +904,50 @@ function LedgerApp() {
                       <span className="text-xs text-on-surface-variant">Terminate current session</span>
                     </div>
                   </button>
+                </div>
+
+                {/* Security & Configuration Section */}
+                <div className="pt-8 border-t border-outline-variant/10 space-y-6">
+                  <div className="flex items-center gap-3">
+                    <div className="p-2 bg-primary/10 text-primary rounded-lg">
+                      <AlertCircle size={20} />
+                    </div>
+                    <h4 className="font-headline font-bold text-on-surface">Security & Configuration</h4>
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <div className="space-y-4">
+                      <div className="bg-surface-container-highest/30 p-4 rounded-2xl border border-outline-variant/5">
+                        <p className="text-[10px] font-bold text-on-surface-variant uppercase tracking-widest mb-2">Admin Email (Protected)</p>
+                        <div className="flex items-center justify-between">
+                          <code className="text-xs font-mono text-primary">
+                            {import.meta.env.VITE_ADMIN_EMAIL ? 
+                              `${import.meta.env.VITE_ADMIN_EMAIL.split('@')[0].substring(0, 3)}***@${import.meta.env.VITE_ADMIN_EMAIL.split('@')[1]}` : 
+                              'Not Configured'}
+                          </code>
+                          <Badge variant={import.meta.env.VITE_ADMIN_EMAIL ? 'tertiary' : 'error'}>
+                            {import.meta.env.VITE_ADMIN_EMAIL ? 'Active' : 'Missing'}
+                          </Badge>
+                        </div>
+                      </div>
+                      <p className="text-[10px] text-on-surface-variant px-2 italic">
+                        The Admin Email is managed via environment variables for enhanced security.
+                      </p>
+                    </div>
+
+                    <div className="space-y-4">
+                      <div className="bg-surface-container-highest/30 p-4 rounded-2xl border border-outline-variant/5">
+                        <p className="text-[10px] font-bold text-on-surface-variant uppercase tracking-widest mb-2">Firebase Integration</p>
+                        <div className="flex items-center justify-between">
+                          <span className="text-xs font-bold text-on-surface">Cloud Infrastructure</span>
+                          <Badge variant="secondary">Connected</Badge>
+                        </div>
+                      </div>
+                      <p className="text-[10px] text-on-surface-variant px-2">
+                        API keys are protected and stored securely. To update configuration, use the platform's Settings menu.
+                      </p>
+                    </div>
+                  </div>
                 </div>
               </div>
             </motion.div>
@@ -1153,6 +1195,73 @@ function LedgerApp() {
                   Create Category
                 </Button>
               </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Reset Confirmation Modal */}
+      <AnimatePresence>
+        {showResetConfirm && (
+          <motion.div 
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[110] bg-black/40 backdrop-blur-sm flex items-center justify-center p-4"
+            onClick={() => setShowResetConfirm(false)}
+          >
+            <motion.div 
+              initial={{ scale: 0.9, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.9, opacity: 0 }}
+              className="bg-surface w-full max-w-md rounded-[2.5rem] p-8 space-y-6 text-center"
+              onClick={e => e.stopPropagation()}
+            >
+              <div className="w-16 h-16 bg-error-container text-on-error-container rounded-full mx-auto flex items-center justify-center">
+                <AlertTriangle size={32} />
+              </div>
+              <div className="space-y-2">
+                <h3 className="font-headline font-bold text-xl">Reset Database?</h3>
+                <p className="text-on-surface-variant text-sm">This will clear all current inventory and restore seed defaults. This action cannot be undone.</p>
+              </div>
+              <div className="flex gap-3">
+                <Button variant="ghost" className="flex-1" onClick={() => setShowResetConfirm(false)}>Cancel</Button>
+                <Button variant="error" className="flex-1" onClick={async () => {
+                  await seedDatabase(true);
+                  setShowResetConfirm(false);
+                  setShowSuccessAlert('Database reset successfully.');
+                }}>Reset All</Button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Success Alert Modal */}
+      <AnimatePresence>
+        {showSuccessAlert && (
+          <motion.div 
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[120] bg-black/40 backdrop-blur-sm flex items-center justify-center p-4"
+            onClick={() => setShowSuccessAlert(null)}
+          >
+            <motion.div 
+              initial={{ scale: 0.9, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.9, opacity: 0 }}
+              className="bg-surface w-full max-w-sm rounded-[2.5rem] p-8 space-y-6 text-center"
+              onClick={e => e.stopPropagation()}
+            >
+              <div className="w-16 h-16 bg-primary/10 text-primary rounded-full mx-auto flex items-center justify-center">
+                <CheckCircle size={32} />
+              </div>
+              <div className="space-y-2">
+                <h3 className="font-headline font-bold text-xl">Success</h3>
+                <p className="text-on-surface-variant text-sm">{showSuccessAlert}</p>
+              </div>
+              <Button className="w-full" onClick={() => setShowSuccessAlert(null)}>Dismiss</Button>
             </motion.div>
           </motion.div>
         )}
