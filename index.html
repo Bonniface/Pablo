@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>The Ledger - Inventory Management</title>
+    <script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;600;700;800&family=Inter:wght@400;500;600&family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap" rel="stylesheet"/>
+    <script id="tailwind-config">
+      tailwind.config = {
+        darkMode: "class",
+        theme: {
+          extend: {
+            colors: {
+              "inverse-surface": "#303036",
+              "tertiary": "#380b00",
+              "surface-container-lowest": "#ffffff",
+              "on-tertiary": "#ffffff",
+              "on-surface-variant": "#454652",
+              "on-error-container": "#93000a",
+              "tertiary-container": "#5c1800",
+              "on-surface": "#1b1b21",
+              "outline-variant": "#c6c5d4",
+              "surface-container-high": "#eae7ef",
+              "primary-container": "#1a237e",
+              "surface-container": "#efecf5",
+              "secondary-container": "#d2d4ff",
+              "secondary": "#585c80",
+              "on-secondary": "#ffffff",
+              "error": "#ba1a1a",
+              "primary-fixed": "#e0e0ff",
+              "on-tertiary-fixed": "#390c00",
+              "surface-container-low": "#f5f2fb",
+              "surface-tint": "#4c56af",
+              "surface-container-highest": "#e4e1ea",
+              "on-error": "#ffffff",
+              "error-container": "#ffdad6",
+              "background": "#fbf8ff",
+              "on-primary": "#ffffff",
+              "outline": "#767683",
+              "surface": "#fbf8ff",
+              "surface-variant": "#e4e1ea",
+              "on-secondary-fixed-variant": "#414467",
+              "on-tertiary-fixed-variant": "#7b2e12",
+              "inverse-on-surface": "#f2eff8",
+              "surface-bright": "#fbf8ff",
+              "inverse-primary": "#bdc2ff",
+              "on-secondary-fixed": "#151839",
+              "tertiary-fixed": "#ffdbd0",
+              "secondary-fixed-dim": "#c1c3ed",
+              "on-tertiary-container": "#e17c5a",
+              "tertiary-fixed-dim": "#ffb59d",
+              "on-primary-fixed": "#000767",
+              "on-background": "#1b1b21",
+              "primary": "#000666",
+              "primary-fixed-dim": "#bdc2ff",
+              "surface-dim": "#dbd9e1",
+              "on-primary-fixed-variant": "#343d96",
+              "on-primary-container": "#8690ee",
+              "secondary-fixed": "#e0e0ff",
+              "on-secondary-container": "#575b7f"
+            },
+            fontFamily: {
+              "headline": ["Manrope"],
+              "body": ["Inter"],
+              "label": ["Inter"]
+            },
+            borderRadius: {"DEFAULT": "0.125rem", "lg": "0.5rem", "xl": "0.75rem", "full": "9999px"},
+          },
+        },
+      }
+    </script>
+    <style>
+      .material-symbols-outlined {
+        font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+      }
+      .glass-effect {
+        backdrop-filter: blur(20px);
+        -webkit-backdrop-filter: blur(20px);
+      }
+      body {
+        min-height: max(884px, 100dvh);
+      }
+    </style>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>
+

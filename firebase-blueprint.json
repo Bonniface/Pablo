@@ -1,0 +1,82 @@
+{
+  "entities": {
+    "User": {
+      "title": "User Profile",
+      "description": "User account information and preferences.",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string" },
+        "email": { "type": "string", "format": "email" },
+        "displayName": { "type": "string" },
+        "photoURL": { "type": "string" },
+        "role": { "type": "string", "enum": ["admin", "manager", "viewer"] }
+      },
+      "required": ["uid", "email"]
+    },
+    "Category": {
+      "title": "Inventory Category",
+      "description": "Grouping for alcoholic and non-alcoholic drink types.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "priority": { "type": "string", "enum": ["high", "stable", "low"] },
+        "icon": { "type": "string" }
+      },
+      "required": ["name"]
+    },
+    "Item": {
+      "title": "Inventory Item",
+      "description": "A specific product SKU.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "sku": { "type": "string" },
+        "name": { "type": "string" },
+        "categoryId": { "type": "string" },
+        "stock": { "type": "number" },
+        "threshold": { "type": "number" },
+        "unitPrice": { "type": "number" },
+        "imageUrl": { "type": "string" },
+        "lastUpdated": { "type": "string", "format": "date-time" },
+        "updatedBy": { "type": "string" }
+      },
+      "required": ["sku", "name", "categoryId", "stock"]
+    },
+    "HistoryRecord": {
+      "title": "Order History Record",
+      "description": "Log of a stock replenishment event.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "itemId": { "type": "string" },
+        "itemName": { "type": "string" },
+        "quantity": { "type": "number" },
+        "unitPrice": { "type": "number" },
+        "totalCost": { "type": "number" },
+        "timestamp": { "type": "string", "format": "date-time" },
+        "userUid": { "type": "string" },
+        "userName": { "type": "string" }
+      },
+      "required": ["itemId", "itemName", "quantity", "totalCost", "timestamp", "userUid"]
+    }
+  },
+  "firestore": {
+    "/users/{uid}": {
+      "schema": "User",
+      "description": "User profiles."
+    },
+    "/categories/{categoryId}": {
+      "schema": "Category",
+      "description": "Item categories."
+    },
+    "/items/{itemId}": {
+      "schema": "Item",
+      "description": "Inventory items."
+    },
+    "/history/{historyId}": {
+      "schema": "HistoryRecord",
+      "description": "Logs of all stock updates."
+    }
+  }
+}

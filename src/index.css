@@ -1,0 +1,73 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Manrope:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200&display=swap');
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-headline: "Manrope", sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
+  --font-body: "Inter", sans-serif;
+  --font-label: "Inter", sans-serif;
+
+  --color-inverse-surface: #303036;
+  --color-tertiary: #380b00;
+  --color-surface-container-lowest: #ffffff;
+  --color-on-tertiary: #ffffff;
+  --color-on-surface-variant: #454652;
+  --color-on-error-container: #93000a;
+  --color-tertiary-container: #5c1800;
+  --color-on-surface: #1b1b21;
+  --color-outline-variant: #c6c5d4;
+  --color-surface-container-high: #eae7ef;
+  --color-primary-container: #1a237e;
+  --color-surface-container: #efecf5;
+  --color-secondary-container: #d2d4ff;
+  --color-secondary: #585c80;
+  --color-on-secondary: #ffffff;
+  --color-error: #ba1a1a;
+  --color-primary-fixed: #e0e0ff;
+  --color-on-tertiary-fixed: #390c00;
+  --color-surface-container-low: #f5f2fb;
+  --color-surface-tint: #4c56af;
+  --color-surface-container-highest: #e4e1ea;
+  --color-on-error: #ffffff;
+  --color-error-container: #ffdad6;
+  --color-background: #fbf8ff;
+  --color-on-primary: #ffffff;
+  --color-outline: #767683;
+  --color-surface: #fbf8ff;
+  --color-surface-variant: #e4e1ea;
+  --color-on-secondary-fixed-variant: #414467;
+  --color-on-tertiary-fixed-variant: #7b2e12;
+  --color-inverse-on-surface: #f2eff8;
+  --color-surface-bright: #fbf8ff;
+  --color-inverse-primary: #bdc2ff;
+  --color-on-secondary-fixed: #151839;
+  --color-tertiary-fixed: #ffdbd0;
+  --color-secondary-fixed-dim: #c1c3ed;
+  --color-on-tertiary-container: #e17c5a;
+  --color-tertiary-fixed-dim: #ffb59d;
+  --color-on-primary-fixed: #000767;
+  --color-on-background: #1b1b21;
+  --color-primary: #000666;
+  --color-primary-fixed-dim: #bdc2ff;
+  --color-surface-dim: #dbd9e1;
+  --color-on-primary-fixed-variant: #343d96;
+  --color-on-primary-container: #8690ee;
+  --color-secondary-fixed: #e0e0ff;
+  --color-on-secondary-container: #575b7f;
+}
+
+@layer base {
+  body {
+    @apply bg-surface text-on-surface font-sans antialiased;
+  }
+}
+
+.bg-indigo-gradient {
+  background: linear-gradient(135deg, #000666 0%, #1A237E 100%);
+}
+
+.glass-nav {
+  @apply bg-surface-container-low/80 backdrop-blur-xl border-t border-outline-variant/10;
+}
+
